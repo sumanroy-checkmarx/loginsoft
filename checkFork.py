@@ -1,16 +1,18 @@
 import requests
 from prettytable import PrettyTable
 from tqdm import tqdm
-from sys import exit
+import sys
+import os.path
 
 packageList = []
 FourOhFourList = []
 ForkedList = []
 OriginalList = []
 LumatchOnly=[]
+NotNeeded=[]
 
-def main():
-    with open("urls.txt", "r") as file:
+def main(file):
+    with open(file, "r") as file:
         data = file.readlines()
 
     for line in data:
@@ -50,15 +52,21 @@ def main():
         progressBar.update(1)
 
     progressBar.close()
+    
+    for domain in OriginalList[:]:
+        if "github.com" not in domain:
+            OriginalList.remove(domain)
+            NotNeeded.append(domain)
 
     # Equalize the lengths of the lists by padding with empty strings
-    maxLength = max(len(OriginalList), len(ForkedList), len(FourOhFourList), len(LumatchOnly))
+    maxLength = max(len(OriginalList), len(ForkedList), len(FourOhFourList), len(LumatchOnly), len(NotNeeded))
     serialNumbers = list(range(1, maxLength + 1))
 
     OriginalList.extend([""] * (maxLength - len(OriginalList)))
     ForkedList.extend([""] * (maxLength - len(ForkedList)))
     FourOhFourList.extend([""] * (maxLength - len(FourOhFourList)))
     LumatchOnly.extend([""] * (maxLength - len(LumatchOnly)))
+    NotNeeded.extend([""] * (maxLength - len(NotNeeded)))
 
     table = PrettyTable()
     table.add_column("S.No", serialNumbers)
@@ -66,16 +74,23 @@ def main():
     table.add_column("Forked", ForkedList)
     table.add_column("404", FourOhFourList)
     table.add_column("Lumatch Only",LumatchOnly)
+    table.add_column("Other Domains",NotNeeded)
 
     table.align["Original"] = "l"
     table.align["Forked"] = "l"
     table.align["404"] = "l"
     table.align["Lumatch Only"] = "l"
+    table.align["Other Domains"] = "l"
     print(table)
 
 try:
-    main()
-except Exception as e:
-    print(f"Exception {e}")
+    filename = "urls.txt" if len(sys.argv) <= 1 else sys.argv[1]
+    if os.path.isfile(filename):
+        main(file=filename)
+    else:
+        print("Please provide a file containing package names/domains")
+        exit(0)
 except KeyboardInterrupt:
-    exit(0)
+    sys.exit(0)
+except Exception as e:
+    print(f"Exception: {e}")
