@@ -130,7 +130,7 @@ def main(filename):
     print(table)
 
 try:
-    filename = "research.txt" if len(sys.argv) <= 1 else sys.argv[1]
+    filename = "urls.txt" if len(sys.argv) <= 1 else sys.argv[1]
     if os.path.isfile(filename):
         main(filename=filename)
     else:
