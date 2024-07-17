@@ -3,13 +3,35 @@ from prettytable import PrettyTable
 from tqdm import tqdm
 import sys
 import os.path
+from bs4 import BeautifulSoup
 
 packageList = []
 FourOhFourList = []
 ForkedList = []
 OriginalList = []
 LumatchOnly=[]
-NotNeeded=[]
+OtherDomain=[]
+
+
+def returnHTMLContent(link):
+    return requests.get(url=link).text
+
+# Dealing with an edge case where the a go package looks like original
+# But upon visting the repository reference, it is labled as fork of the original
+def isGOPackageForked(package) -> bool:
+    goPKGURL = "https://pkg.go.dev/"+package
+    soup=BeautifulSoup(returnHTMLContent(goPKGURL),'html.parser')
+    unit_meta_repo = soup.find('div', class_='UnitMeta-repo')
+    if unit_meta_repo:
+        link = unit_meta_repo.find('a')
+        if link and 'href' in link.attrs:
+            url = link['href']
+            content=returnHTMLContent(url)
+            if "forked from" in content or "Fork of" in content:
+                return True
+            else:
+                return False
+
 
 def main(file):
     with open(file, "r") as file:
@@ -33,7 +55,10 @@ def main(file):
                 if delta.status_code == 404:
                     FourOhFourList.append(package)
                 else:
-                    OriginalList.append(package)
+                    if isGOPackageForked(package=package) is True:
+                        ForkedList.append(package)
+                    else:
+                        OriginalList.append(package)
 
             elif "forked from" in response.text or "Fork of" in response.text:
                 ForkedList.append(package)
@@ -56,17 +81,18 @@ def main(file):
     for domain in OriginalList[:]:
         if "github.com" not in domain:
             OriginalList.remove(domain)
-            NotNeeded.append(domain)
+            OtherDomain.append(domain)
+
 
     # Equalize the lengths of the lists by padding with empty strings
-    maxLength = max(len(OriginalList), len(ForkedList), len(FourOhFourList), len(LumatchOnly), len(NotNeeded))
+    maxLength = max(len(OriginalList), len(ForkedList), len(FourOhFourList), len(LumatchOnly), len(OtherDomain))
     serialNumbers = list(range(1, maxLength + 1))
 
     OriginalList.extend([""] * (maxLength - len(OriginalList)))
     ForkedList.extend([""] * (maxLength - len(ForkedList)))
     FourOhFourList.extend([""] * (maxLength - len(FourOhFourList)))
     LumatchOnly.extend([""] * (maxLength - len(LumatchOnly)))
-    NotNeeded.extend([""] * (maxLength - len(NotNeeded)))
+    OtherDomain.extend([""] * (maxLength - len(OtherDomain)))
 
     table = PrettyTable()
     table.add_column("S.No", serialNumbers)
@@ -74,7 +100,7 @@ def main(file):
     table.add_column("Forked", ForkedList)
     table.add_column("404", FourOhFourList)
     table.add_column("Lumatch Only",LumatchOnly)
-    table.add_column("Other Domains",NotNeeded)
+    table.add_column("Other Domains",OtherDomain)
 
     table.align["Original"] = "l"
     table.align["Forked"] = "l"
