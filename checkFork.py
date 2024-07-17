@@ -1,118 +1,138 @@
 import requests
 from prettytable import PrettyTable
-from tqdm import tqdm
+import os
 import sys
-import os.path
 from bs4 import BeautifulSoup
 
-packageList = []
-FourOhFourList = []
-ForkedList = []
-OriginalList = []
-LumatchOnly=[]
-OtherDomain=[]
+packages = []
+package404 = []
+forkedList = []
+otherDomain = []
+
+
+# Now check for 404
+def getBase(package) -> str:
+    parts = package.rstrip('/').split('/')
+
+    if len(parts) > 2 and 'v' in parts[-1]:
+        parts.pop()
+    
+    return '/'.join(parts)
+
+def is404(package) -> bool:
+    github = "https://" + package
+    goPKG = "https://pkg.go.dev/" + package
+
+    baseGithub = "https://" + getBase(package=package)
+    baseGOPkg = "https://pkg.go.dev/" + getBase(package=package)
+
+    try:
+        if requests.get(github).status_code == 404:
+            if requests.get(goPKG).status_code == 404:
+                if requests.get(baseGithub).status_code != 404 or requests.get(baseGOPkg).status_code != 404:
+                    return False
+                else:
+                    return True
+            else:
+                return False
+        else:
+            return False
+    except requests.RequestException:
+        return False
 
 
 def returnHTMLContent(link):
-    return requests.get(url=link).text
-
-# Dealing with an edge case where the a go package looks like original
-# But upon visting the repository reference, it is labled as fork of the original
-def isGOPackageForked(package) -> bool:
-    goPKGURL = "https://pkg.go.dev/"+package
-    soup=BeautifulSoup(returnHTMLContent(goPKGURL),'html.parser')
-    unit_meta_repo = soup.find('div', class_='UnitMeta-repo')
-    if unit_meta_repo:
-        link = unit_meta_repo.find('a')
-        if link and 'href' in link.attrs:
-            url = link['href']
-            content=returnHTMLContent(url)
-            if "forked from" in content or "Fork of" in content:
-                return True
-            else:
-                return False
+    try:
+        response = requests.get(url=link)
+        response.raise_for_status()
+        return response.text
+    except requests.RequestException:
+        return ""
 
 
-def main(file):
-    with open(file, "r") as file:
+def isFork(url) -> bool:
+    base=getBase(url)
+    content = returnHTMLContent(base)
+    if "forked from" in content or "Fork of" in content:
+        return True
+    else:
+        return False
+
+def check404():
+    totalPackages = len(packages)
+    progress = 0
+    for package in packages[:]:
+        print(f"Checking 404 Status : {progress}/{totalPackages}", end="\r")
+        if is404(package=package):
+            package404.append(package)
+            packages.remove(package)
+        progress += 1
+    print()
+
+def filterForked():
+    totalPackages = len(packages)
+    progress = 0
+    for package in packages[:]:
+        print(f"Filtering Packages : {progress}/{totalPackages}", end="\r")
+        if "." in package:
+            # Now check if it's a fork or not
+            url="https://"+package
+            if isFork(url):
+                forkedList.append(package)
+                packages.remove(package)
+        progress += 1
+    print()
+
+def filterDomains():
+    totalPackages = len(packages)
+    progress = 0
+    for package in packages[:]:
+        print(f"Filtering Domains : {progress}/{totalPackages}", end="\r")
+        if "github.com" not in package:
+            otherDomain.append(package)
+            packages.remove(package)
+        progress += 1
+    print()
+
+def main(filename):
+    # Get the list of packages
+    with open(filename, "r") as file:
         data = file.readlines()
 
-    for line in data:
-        line = line.strip()
-        if line != "":
-            packageList.append(line)
+        for line in data:
+            line = line.strip()
+            if line != "":
+                if "." in line:
+                    packages.append(line)
 
-    # Initialize tqdm with the total number of packages to process
-    progressBar = tqdm(total=len(packageList), desc="Checking Packages")
+    check404()
+    filterForked()
+    filterDomains()
 
-    for package in packageList:
-        if "." in package:
-            craftedURL = "https://" + package
-            response = requests.get(url=craftedURL)
-            if response.status_code == 404:
-                goPKGURL = "https://pkg.go.dev/" + package
-                delta = requests.get(url=goPKGURL)
-                if delta.status_code == 404:
-                    FourOhFourList.append(package)
-                else:
-                    if isGOPackageForked(package=package) is True:
-                        ForkedList.append(package)
-                    else:
-                        OriginalList.append(package)
-
-            elif "forked from" in response.text or "Fork of" in response.text:
-                ForkedList.append(package)
-            else:
-                OriginalList.append(package)
-
-        elif "." not in package:
-            goPKGURL = "https://pkg.go.dev/" + package
-            goPKGResponse = requests.get(url=goPKGURL)
-            if goPKGResponse.status_code == 404:
-                LumatchOnly.append(package)
-            else:
-                OriginalList.append(package)
-
-        # Update the progress bar
-        progressBar.update(1)
-
-    progressBar.close()
-    
-    for domain in OriginalList[:]:
-        if "github.com" not in domain:
-            OriginalList.remove(domain)
-            OtherDomain.append(domain)
-
-
-    # Equalize the lengths of the lists by padding with empty strings
-    maxLength = max(len(OriginalList), len(ForkedList), len(FourOhFourList), len(LumatchOnly), len(OtherDomain))
-    serialNumbers = list(range(1, maxLength + 1))
-
-    OriginalList.extend([""] * (maxLength - len(OriginalList)))
-    ForkedList.extend([""] * (maxLength - len(ForkedList)))
-    FourOhFourList.extend([""] * (maxLength - len(FourOhFourList)))
-    LumatchOnly.extend([""] * (maxLength - len(LumatchOnly)))
-    OtherDomain.extend([""] * (maxLength - len(OtherDomain)))
+    # Make all lists the same length
+    max_length = max(len(packages), len(forkedList), len(package404), len(otherDomain))
+    packages.extend([""] * (max_length - len(packages)))
+    forkedList.extend([""] * (max_length - len(forkedList)))
+    package404.extend([""] * (max_length - len(package404)))
+    otherDomain.extend([""] * (max_length -len(otherDomain)))
 
     table = PrettyTable()
-    table.add_column("S.No", serialNumbers)
-    table.add_column("Original", OriginalList)
-    table.add_column("Forked", ForkedList)
-    table.add_column("404", FourOhFourList)
-    table.add_column("Lumatch Only",LumatchOnly)
-    table.add_column("Other Domains",OtherDomain)
+    table.add_column("Original", packages)
+    table.add_column("Forked", forkedList)
+    table.add_column("404", package404)
+    table.add_column("Other Domain",otherDomain)
 
-    table.align["Original"] = "l"
-    table.align["Forked"] = "l"
-    table.align["404"] = "l"
-    table.align["Lumatch Only"] = "l"
-    table.align["Other Domains"] = "l"
+    table.align["Original"]="l"
+    table.align["Forked"]="l"
+    table.align["404"]="l"
+    table.align["Other Domain"]="l"
+
     print(table)
 
 try:
-    filename = "urls.txt" if len(sys.argv) <= 1 else sys.argv[1]
+    filename = "research.txt" if len(sys.argv) <= 1 else sys.argv[1]
     if os.path.isfile(filename):
-        main(file=filename)
+        main(filename=filename)
     else:
         print("Please provide a file containing package names/domains")
         exit(0)
