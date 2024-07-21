@@ -1,3 +1,0 @@
-prettytable
-Requests
-tqdm

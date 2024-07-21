@@ -4,139 +4,107 @@ import os
 import sys
 from bs4 import BeautifulSoup
 
-packages = []
+
+# Main Package List
+
+github=[]
 package404 = []
 forkedList = []
 otherDomain = []
+lumatchPackage = []
 
 
-# Now check for 404
-def getBase(package) -> str:
-    parts = package.rstrip('/').split('/')
-
-    if len(parts) > 2 and 'v' in parts[-1]:
-        parts.pop()
-    
-    return '/'.join(parts)
-
-def is404(package) -> bool:
-    github = "https://" + package
-    goPKG = "https://pkg.go.dev/" + package
-
-    baseGithub = "https://" + getBase(package=package)
-    baseGOPkg = "https://pkg.go.dev/" + getBase(package=package)
-
-    try:
-        if requests.get(github).status_code == 404:
-            if requests.get(goPKG).status_code == 404:
-                if requests.get(baseGithub).status_code != 404 or requests.get(baseGOPkg).status_code != 404:
-                    return False
-                else:
-                    return True
-            else:
-                return False
-        else:
-            return False
-    except requests.RequestException:
-        return False
-
-
-def returnHTMLContent(link):
-    try:
-        response = requests.get(url=link)
-        response.raise_for_status()
-        return response.text
-    except requests.RequestException:
-        return ""
-
+def isGOPackageForked(package) -> bool:
+    goPKGURL = "https://pkg.go.dev/" + package
+    soup = BeautifulSoup(requests.get(goPKGURL).text, 'html.parser')
+    unit_meta_repo = soup.find('div', class_='UnitMeta-repo')
+    if unit_meta_repo:
+        link = unit_meta_repo.find('a')
+        if link and 'href' in link.attrs:
+            url = link['href']
+            content = requests.get(url).text
+            return "forked from" in content or "Fork of" in content
+    return False
 
 def isFork(url) -> bool:
-    base=getBase(url)
-    content = returnHTMLContent(base)
+    response = requests.get(url)
+    content = response.text
     if "forked from" in content or "Fork of" in content:
         return True
     else:
         return False
-
-def check404():
-    totalPackages = len(packages)
-    progress = 0
-    for package in packages[:]:
-        print(f"Checking 404 Status : {progress}/{totalPackages}", end="\r")
-        if is404(package=package):
-            package404.append(package)
-            packages.remove(package)
-        progress += 1
-    print()
-
-def filterForked():
-    totalPackages = len(packages)
-    progress = 0
-    for package in packages[:]:
-        print(f"Filtering Packages : {progress}/{totalPackages}", end="\r")
-        if "." in package:
-            # Now check if it's a fork or not
-            url="https://"+package
-            if isFork(url):
-                forkedList.append(package)
-                packages.remove(package)
-        progress += 1
-    print()
-
-def filterDomains():
-    totalPackages = len(packages)
-    progress = 0
-    for package in packages[:]:
-        print(f"Filtering Domains : {progress}/{totalPackages}", end="\r")
-        if "github.com" not in package:
-            otherDomain.append(package)
-            packages.remove(package)
-        progress += 1
-    print()
+    
 
 def main(filename):
-    # Get the list of packages
+        # Get the list of packages
     with open(filename, "r") as file:
-        data = file.readlines()
-
-        for line in data:
-            line = line.strip()
-            if line != "":
-                if "." in line:
-                    packages.append(line)
-
-    check404()
-    filterForked()
-    filterDomains()
-
-    # Make all lists the same length
-    max_length = max(len(packages), len(forkedList), len(package404), len(otherDomain))
-    packages.extend([""] * (max_length - len(packages)))
+        data = [package.strip() for package in file.readlines() if package.strip()]
+        
+    for package in data[:]:
+        if "." in package:
+            if "github.com" in package:
+                github.append(package)
+                data.remove(package)
+            else:
+                otherDomain.append(package)
+                data.remove(package)
+        else:
+            lumatchPackage.append(package)
+    
+    counter=0
+    githubListLength=len(github)
+    for package in github[:]:
+        url="https://"+package
+        counter=counter+1
+        print(f"Checking for fork {counter}/{githubListLength}",end="\r")
+        if requests.get(url).status_code==404:
+            gopkg="https://pkg.go.dev/"+package
+            if requests.get(gopkg).status_code==404:
+                package404.append(package)
+                github.remove(package)
+            else:
+                if isGOPackageForked(package=package):
+                    forkedList.append(package)
+                    github.remove(package)
+                    
+        else:
+            if isFork(url=url):
+                forkedList.append(package)
+                github.remove(package)
+                
+    table=PrettyTable()
+    max_length = max(len(github), len(forkedList), len(package404), len(otherDomain), len(lumatchPackage))
+    github.extend([""] * (max_length - len(github)))
     forkedList.extend([""] * (max_length - len(forkedList)))
     package404.extend([""] * (max_length - len(package404)))
     otherDomain.extend([""] * (max_length -len(otherDomain)))
+    lumatchPackage.extend([""] * (max_length - len(lumatchPackage)))
 
     table = PrettyTable()
-    table.add_column("Original", packages)
+    table.add_column("Original", github)
     table.add_column("Forked", forkedList)
     table.add_column("404", package404)
     table.add_column("Other Domain",otherDomain)
+    table.add_column("Lumatch",lumatchPackage)
 
     table.align["Original"]="l"
     table.align["Forked"]="l"
     table.align["404"]="l"
     table.align["Other Domain"]="l"
+    table.align["Lumatch"]="l"
 
     print(table)
 
-try:
-    filename = "urls.txt" if len(sys.argv) <= 1 else sys.argv[1]
-    if os.path.isfile(filename):
-        main(filename=filename)
-    else:
-        print("Please provide a file containing package names/domains")
-        exit(0)
-except KeyboardInterrupt:
-    sys.exit(0)
-except Exception as e:
-    print(f"Exception: {e}")
+if __name__ == '__main__':
+    try:
+        filename = "urls.txt" if len(sys.argv) <= 1 else sys.argv[1]
+        if os.path.isfile(filename):
+            main(filename=filename)
+        else:
+            print("Please provide a file containing package names/domains")
+            exit(0)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    except KeyboardInterrupt:
+        sys.exit(0)
+        
