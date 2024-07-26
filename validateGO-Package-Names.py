@@ -3,7 +3,7 @@ import sys
 
 
 # Change this
-REPO_NAME="https://github.com/hashicorp/vault"
+REPO_NAME="https://github.com/woodpecker-ci/woodpecker"
 FILE_PATH="go-package-names.txt"
 
 
@@ -23,7 +23,7 @@ try:
         counter=counter+1
         print(f"Progress {counter}/{packageLength}",end="\r")
         if response.url == REPO_NAME:
-            print(f"\n[+] Redirect {package} -> https://{package}")
+            print(f"\n[+] Redirect {package} -> https://{REPO_NAME}")
 except Exception as e:
     print(f"Error {e}")
 except KeyboardInterrupt:
